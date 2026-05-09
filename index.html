@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Anitčina Angličtina 🌟</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌟</text></svg>">
+</head>
+<body>
+  <!-- Persistent Header -->
+  <header id="app-header"></header>
+
+  <!-- Main Content Area -->
+  <main id="app-content"></main>
+
+  <!-- Confetti Canvas (overlay) -->
+  <canvas id="confetti-canvas"></canvas>
+
+  <!-- Reward Modal -->
+  <div id="reward-modal" class="hidden"></div>
+
+  <!-- SheetJS for XLS import -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+  <!-- Application scripts (order matters!) -->
+  <script src="data.js"></script>
+  <script src="speech.js"></script>
+  <script src="confetti.js"></script>
+  <script src="quiz.js"></script>
+  <script src="import.js"></script>
+  <script src="words-default.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
