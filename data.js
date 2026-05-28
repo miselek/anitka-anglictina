@@ -9,6 +9,7 @@ const DataManager = {
   load() {
     try {
       const raw = localStorage.getItem(this.STORAGE_KEY);
+      this._localWasEmpty = !raw;
       if (raw) {
         this.data = JSON.parse(raw);
         this.migrate();
@@ -18,6 +19,7 @@ const DataManager = {
       }
     } catch (e) {
       console.error('Failed to load data:', e);
+      this._localWasEmpty = true;
       this.data = this.getDefaultData();
       this.save();
     }
@@ -25,10 +27,51 @@ const DataManager = {
 
   save() {
     try {
+      this.data._updatedAt = Date.now();
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
     } catch (e) {
       console.error('Failed to save data:', e);
     }
+    // Fire-and-forget cloud sync (debounced inside SupabaseSync).
+    // Suppressed during initial cloud-restore window.
+    if (typeof SupabaseSync !== 'undefined' && SupabaseSync.enabled && !this._suppressCloudSave) {
+      SupabaseSync.scheduleSave();
+    }
+  },
+
+  async syncFromCloud() {
+    if (typeof SupabaseSync === 'undefined' || !SupabaseSync.enabled) return false;
+    // While we wait for cloud, suppress local→cloud writes so default-words
+    // loading on a fresh device doesn't overwrite the user's real cloud data.
+    if (this._localWasEmpty) {
+      this._suppressCloudSave = true;
+      if (typeof SupabaseSync.cancelPending === 'function') SupabaseSync.cancelPending();
+    }
+    let cloud = null;
+    try {
+      cloud = await SupabaseSync.load();
+    } finally {
+      this._suppressCloudSave = false;
+    }
+
+    if (cloud && cloud.data) {
+      const cloudUpdatedAt = cloud.data._updatedAt || new Date(cloud.updated_at).getTime();
+      const localUpdatedAt = this.data._updatedAt || 0;
+      const shouldReplace = this._localWasEmpty || cloudUpdatedAt > localUpdatedAt;
+      if (shouldReplace) {
+        if (typeof SupabaseSync.cancelPending === 'function') SupabaseSync.cancelPending();
+        this.data = cloud.data;
+        try {
+          localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
+        } catch (e) { /* ignore */ }
+        return true;
+      }
+      return false;
+    }
+
+    // Cloud is empty — push local up so next device sees it.
+    if (typeof SupabaseSync.scheduleSave === 'function') SupabaseSync.scheduleSave();
+    return false;
   },
 
   getDefaultData() {

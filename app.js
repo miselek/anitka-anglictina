@@ -11,6 +11,17 @@ const App = {
     SpeechManager.init();
     this.renderHeader();
     this.navigate('dashboard');
+
+    // Cloud sync: pull from Supabase in the background. If cloud is newer,
+    // replace local state and re-render. Doesn't block startup.
+    if (typeof DataManager.syncFromCloud === 'function') {
+      DataManager.syncFromCloud().then(changed => {
+        if (changed) {
+          this.renderHeader();
+          this.navigate(this.currentScreen || 'dashboard');
+        }
+      });
+    }
   },
 
   navigate(screen, params) {
