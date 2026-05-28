@@ -164,6 +164,7 @@ const DataManager = {
           pronunciation: pair.pronunciation || '',
           textbook: pair.textbook || '',
           topic: pair.topic || '',
+          frequency: pair.frequency || 0,
           categoryId: category.id,
           state: 'untested',
           correctStreak: 0,
@@ -261,9 +262,11 @@ const DataManager = {
       return 500 + Math.min(timeSinceLastAttempt, 500);
     }
 
-    // Tier 3: Untested words
+    // Tier 3: Untested words. Boost by frequency so the most-used words
+    // are taught first. Frequency is 0 for words without freq data.
     if (word.state === 'untested') {
-      return 300 + Math.random() * 50;
+      const freqBoost = Math.min((word.frequency || 0) * 8, 100);
+      return 300 + freqBoost + Math.random() * 20;
     }
 
     // Tier 4: Known words needing review (streak < 2)
