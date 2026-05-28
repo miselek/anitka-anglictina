@@ -80,6 +80,18 @@ const ImportManager = {
     return 'czech' in mapping && 'english' in mapping;
   },
 
+  _hasAnyHeaderKeyword(row) {
+    if (!row) return false;
+    for (let i = 0; i < row.length; i++) {
+      const cell = this._normalize(row[i]);
+      if (!cell) continue;
+      for (const aliases of Object.values(this.COLUMN_ALIASES)) {
+        if (aliases.some(a => cell === a || cell.includes(a))) return true;
+      }
+    }
+    return false;
+  },
+
   parseFile(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -103,11 +115,16 @@ const ImportManager = {
 
             let mapping = null;
             let dataRows = rows;
-            if (dataRows.length > 0 && this._isHeader(dataRows[0])) {
-              mapping = this._mapHeader(dataRows[0]);
+            const firstRow = rows[0];
+            if (dataRows.length > 0 && this._isHeader(firstRow)) {
+              mapping = this._mapHeader(firstRow);
               dataRows = dataRows.slice(1);
+            } else if (this._hasAnyHeaderKeyword(firstRow)) {
+              // Sheet has a header but lacks Czech/English columns. Almost
+              // certainly a summary sheet (e.g., "Přehled"), not vocabulary.
+              continue;
             } else {
-              // Positional fallback: A=cz, B=en, C=ipa, D=textbook, E=topic, F=frequency
+              // No header at all — positional fallback for legacy files.
               mapping = { czech: 0, english: 1, pronunciation: 2, textbook: 3, topic: 4, frequency: 5 };
             }
 

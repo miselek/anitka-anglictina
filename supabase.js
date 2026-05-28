@@ -8,7 +8,6 @@
 const SupabaseSync = {
   URL: 'https://jknocwhxnebfqafixfcs.supabase.co',
   KEY: 'sb_publishable_R-fVeHeJaosHatrGF4DK_w_oODtfyR8',
-  USER_ID: 'anitka',
   TABLE: 'anitka_user_state',
   DEBOUNCE_MS: 1500,
   enabled: true,
@@ -16,6 +15,14 @@ const SupabaseSync = {
   inFlight: false,
   lastError: null,
   status: 'idle', // idle | saving | ok | error
+
+  get USER_ID() {
+    if (typeof Auth !== 'undefined' && Auth.getCurrent) {
+      const u = Auth.getCurrent();
+      if (u) return u.id;
+    }
+    return 'anitka'; // legacy fallback
+  },
 
   _headers(extra) {
     return Object.assign({

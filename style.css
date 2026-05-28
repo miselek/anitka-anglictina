@@ -1720,6 +1720,383 @@ body {
   letter-spacing: 0.5px;
 }
 
+/* === Login screen === */
+.login-screen {
+  max-width: 360px;
+  margin: 0 auto;
+  padding: 24px 16px;
+  text-align: center;
+  color: white;
+}
+.login-title { margin-bottom: 24px; }
+.login-title h1 { font-size: 1.8rem; margin: 8px 0; }
+.login-title h2 { font-size: 1.3rem; margin: 8px 0; }
+.login-title p { font-size: 1rem; opacity: 0.85; }
+.login-logo { font-size: 3.5rem; }
+.login-user-emoji { font-size: 4.5rem; margin-bottom: 8px; }
+.login-error {
+  background: rgba(255, 75, 75, 0.95);
+  color: white;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-weight: 600;
+  margin: 12px auto;
+  display: inline-block;
+}
+.login-hint {
+  margin-top: 16px;
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+.user-picker {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+.user-tile {
+  background: white;
+  border: 4px solid var(--user-color, #ccc);
+  border-radius: 18px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  cursor: pointer;
+  font-size: 1.3rem;
+  color: #333;
+  font-weight: 700;
+  box-shadow: 0 4px 0 rgba(0,0,0,0.15);
+  transition: transform 0.1s;
+}
+.user-tile:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,0.15); }
+.user-tile .user-emoji { font-size: 2.6rem; }
+.user-tile .user-name { font-size: 1.4rem; }
+
+/* PIN keypad */
+.pin-display {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin: 20px 0 24px;
+}
+.pin-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 3px solid white;
+  display: inline-block;
+}
+.pin-dot.filled { background: white; }
+.pin-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  max-width: 280px;
+  margin: 0 auto;
+}
+.pin-key {
+  background: white;
+  color: #235390;
+  border: 0;
+  border-radius: 14px;
+  padding: 18px 0;
+  font-size: 1.6rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 3px 0 rgba(0,0,0,0.15);
+  transition: transform 0.05s;
+}
+.pin-key:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0,0,0,0.15); }
+.pin-key-back, .pin-key-clear {
+  background: rgba(255,255,255,0.85);
+  color: #555;
+  font-size: 1.2rem;
+}
+
+/* === User badge in header === */
+.header-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255,255,255,0.18);
+  color: white;
+  border: 0;
+  border-radius: 999px;
+  padding: 3px 10px 3px 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.header-user-emoji { font-size: 1.1rem; }
+
+/* === Dashboard: textbook groups (collapsible) === */
+.btn-procvicovat-vse {
+  width: 100%;
+  padding: 16px 14px;
+  font-size: 1.15rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #58cc02, #46a302);
+  color: white;
+  border-radius: 16px;
+  box-shadow: 0 4px 0 #2c6500;
+  margin-bottom: 12px;
+}
+.btn-sub {
+  display: block;
+  font-size: 0.78rem;
+  opacity: 0.92;
+  font-weight: 500;
+  margin-top: 4px;
+}
+.textbook-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.textbook-group {
+  background: white;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 2px 0 rgba(0,0,0,0.12);
+}
+.textbook-group-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #f3f7ff;
+  border: 0;
+  font-size: 0.95rem;
+  cursor: pointer;
+  text-align: left;
+  font-weight: 700;
+  color: #235390;
+}
+.textbook-group-name { flex: 1; }
+.textbook-group-meta { color: #4a5b76; font-weight: 600; font-size: 0.85rem; }
+.textbook-group-chevron { color: #235390; font-size: 1rem; }
+.textbook-group-body {
+  display: none;
+  padding: 8px;
+  background: white;
+  flex-direction: column;
+  gap: 6px;
+}
+.textbook-group.open .textbook-group-body { display: flex; }
+.textbook-group.open .textbook-group-header { background: #e3edff; }
+
+.category-card-compact {
+  position: relative;
+  padding: 8px 36px 8px 10px;
+  background: #fafcff;
+  border: 1px solid #d7dff0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.category-card-compact .category-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.category-card-compact .category-name {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #333;
+}
+.category-card-compact .category-count {
+  font-size: 0.8rem;
+  color: #4a5b76;
+  font-variant-numeric: tabular-nums;
+}
+.category-mini-bar {
+  height: 4px;
+  background: #e2e7ee;
+  border-radius: 4px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+.category-mini-bar .bar-known {
+  height: 100%;
+  background: #58cc02;
+  transition: width 0.3s;
+}
+.btn-tiny-detail {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  background: transparent;
+  border: 0;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 6px;
+}
+
+/* === Quiz feedback (replaces options after answer) === */
+.quiz-screen.feedback-shown .quiz-options,
+.quiz-screen.feedback-shown .quiz-question {
+  display: none;
+}
+.quiz-feedback {
+  display: none;
+  margin-top: 6px;
+  animation: feedback-pop 0.25s ease-out;
+}
+@keyframes feedback-pop {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.feedback-correct,
+.feedback-wrong {
+  border-radius: 18px;
+  padding: 14px 14px 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.feedback-correct {
+  background: linear-gradient(135deg, #d7f5b5, #b4e872);
+  border: 3px solid #58cc02;
+  box-shadow: 0 4px 0 #4ba600;
+}
+.feedback-wrong {
+  background: linear-gradient(135deg, #ffd7d7, #ffb0b0);
+  border: 3px solid #ff4b4b;
+  box-shadow: 0 4px 0 #d63333;
+}
+.feedback-emoji-big {
+  font-size: 3rem;
+  line-height: 1;
+}
+.feedback-status {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #2a4a00;
+}
+.feedback-wrong .feedback-status {
+  color: #7a0000;
+}
+.xp-popup {
+  display: inline-block;
+  padding: 3px 10px;
+  background: #ffd700;
+  border-radius: 999px;
+  color: #5a4400;
+  font-weight: 800;
+  font-size: 1rem;
+  margin-left: 6px;
+}
+.feedback-combo {
+  background: linear-gradient(90deg, #ff7e00, #ff3a3a);
+  color: white;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: 0.5px;
+}
+.feedback-word-pair {
+  background: rgba(255,255,255,0.7);
+  border-radius: 12px;
+  padding: 14px 16px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.feedback-cz {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #333;
+}
+.feedback-eq {
+  color: #888;
+  font-size: 0.9rem;
+}
+.feedback-en {
+  font-size: 1.7rem;
+  font-weight: 800;
+  color: #1c5a8d;
+}
+.feedback-en-emphasized {
+  color: #b30000;
+}
+.feedback-ipa-big {
+  font-size: 1.1rem;
+  font-style: italic;
+  color: #555;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+.feedback-your-answer {
+  color: #7a0000;
+  font-size: 0.95rem;
+}
+.feedback-your-answer em {
+  font-weight: 700;
+  font-style: normal;
+  text-decoration: line-through;
+}
+.combo-lost {
+  font-size: 0.85rem;
+  color: #aa0000;
+}
+.feedback-correct .btn-replay,
+.feedback-wrong .btn-replay {
+  background: rgba(255,255,255,0.85);
+  color: #333;
+  min-height: 40px;
+  padding: 8px 16px;
+  font-size: 0.95rem;
+}
+.feedback-correct .btn-next,
+.feedback-wrong .btn-next {
+  margin-top: 6px;
+  min-height: 48px;
+  font-size: 1.1rem;
+}
+.level-up-mini {
+  background: gold;
+  color: #5a4400;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-weight: 800;
+  margin-top: 6px;
+}
+
+/* === Results: continue / done banners === */
+.next-up-info {
+  margin: 16px 0 12px;
+  padding: 12px 14px;
+  background: #e7f3ff;
+  border: 2px solid #84d8ff;
+  border-radius: 12px;
+  color: #1c5a8d;
+  font-size: 0.95rem;
+  text-align: center;
+}
+.all-done-banner {
+  margin: 16px 0;
+  padding: 16px;
+  background: linear-gradient(135deg, #fff6c2, #ffe27d);
+  border: 2px solid #ffb300;
+  border-radius: 14px;
+  color: #5c4400;
+  font-size: 1rem;
+  text-align: center;
+  font-weight: 600;
+}
+.btn-large {
+  padding: 16px 18px;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
 /* === Cloud sync indicator === */
 .sync-status {
   display: inline-flex;

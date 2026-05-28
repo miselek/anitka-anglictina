@@ -3,11 +3,24 @@
 // =====================================================
 
 const DataManager = {
-  STORAGE_KEY: 'anitka_app',
   data: null,
+
+  // Per-user storage key. Falls back to legacy 'anitka_app' if no user
+  // is logged in (shouldn't happen in normal flow once login is enforced).
+  get STORAGE_KEY() {
+    if (typeof Auth !== 'undefined' && Auth.getCurrent) {
+      const u = Auth.getCurrent();
+      if (u) return `anitka_app_${u.id}`;
+    }
+    return 'anitka_app';
+  },
 
   load() {
     try {
+      // Backward-compat: if a legacy 'anitka_app' row exists and we're
+      // logged in as Anitka, migrate it to the namespaced key once.
+      this._migrateLegacyKeyIfNeeded();
+
       const raw = localStorage.getItem(this.STORAGE_KEY);
       this._localWasEmpty = !raw;
       if (raw) {
@@ -23,6 +36,21 @@ const DataManager = {
       this.data = this.getDefaultData();
       this.save();
     }
+  },
+
+  _migrateLegacyKeyIfNeeded() {
+    try {
+      const legacy = localStorage.getItem('anitka_app');
+      if (!legacy) return;
+      // Only migrate when currently logged in as Anitka (legacy data is hers).
+      const u = typeof Auth !== 'undefined' && Auth.getCurrent ? Auth.getCurrent() : null;
+      if (!u || u.id !== 'anitka') return;
+      const targetKey = `anitka_app_${u.id}`;
+      if (!localStorage.getItem(targetKey)) {
+        localStorage.setItem(targetKey, legacy);
+      }
+      localStorage.removeItem('anitka_app');
+    } catch (e) { /* ignore */ }
   },
 
   save() {
@@ -61,6 +89,9 @@ const DataManager = {
       if (shouldReplace) {
         if (typeof SupabaseSync.cancelPending === 'function') SupabaseSync.cancelPending();
         this.data = cloud.data;
+        // Cloud may have an older schema version (saved before a migration
+        // was added). Run migrations so the new code sees clean state.
+        this.migrate();
         try {
           localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
         } catch (e) { /* ignore */ }
@@ -124,6 +155,33 @@ const DataManager = {
       if (s.dailyGoalsCompleted === undefined) s.dailyGoalsCompleted = 0;
       if (s.achievements === undefined) s.achievements = [];
       this.data.version = 2;
+      this.save();
+    }
+    // v3: one-correct-is-known semantics. Promote any 'learning' words that
+    // have at least one correct answer and never were wrong to 'known'.
+    if (this.data.version < 3) {
+      let changed = 0;
+      for (const w of this.data.words || []) {
+        if (w.state === 'learning' && (w.wrongCount || 0) === 0 && (w.correctStreak || 0) >= 1) {
+          w.state = 'known';
+          changed++;
+        }
+      }
+      this.data.version = 3;
+      this.save();
+      if (changed > 0) console.log(`[migrate v3] Promoted ${changed} learning words to known.`);
+    }
+    // v4: remove bogus "Přehled" category created by an early importer bug
+    // that read the summary sheet from the Happy House/Street xlsx as words.
+    if (this.data.version < 4) {
+      const bogus = (this.data.categories || []).find(c => c.name === 'Přehled');
+      if (bogus) {
+        const removedWords = (this.data.words || []).filter(w => w.categoryId === bogus.id).length;
+        this.data.categories = this.data.categories.filter(c => c.id !== bogus.id);
+        this.data.words = this.data.words.filter(w => w.categoryId !== bogus.id);
+        console.log(`[migrate v4] Removed Přehled category and ${removedWords} bogus words.`);
+      }
+      this.data.version = 4;
       this.save();
     }
   },
@@ -202,22 +260,16 @@ const DataManager = {
       if (direction === 'cz_to_en') word.czToEnCorrect++;
       else word.enToCzCorrect++;
 
-      // State transitions
-      if (word.state === 'untested') {
-        word.state = 'learning';
-      }
-      if (word.state === 'learning' && word.correctStreak >= 2) {
+      // Single correct = naučeno. Don't bring it back to the quiz queue.
+      // Known + correct also stays known (streak grows for stats).
+      if (word.state !== 'known') {
         word.state = 'known';
-        word.correctStreak = 0; // reset for review tracking
       }
     } else {
       word.wrongCount++;
       word.correctStreak = 0;
-
-      if (word.state === 'untested') {
-        word.state = 'learning';
-      }
-      // If known word answered wrong, keep state but streak resets
+      // Wrong → put it back in the learning pool, regardless of prior state.
+      word.state = 'learning';
     }
 
     this.save();
@@ -269,14 +321,11 @@ const DataManager = {
       return 300 + freqBoost + Math.random() * 20;
     }
 
-    // Tier 4: Known words needing review (streak < 2)
-    if (word.state === 'known' && word.correctStreak < 2) {
-      return 200 + Math.min(timeSinceLastAttempt / 10, 200);
-    }
-
-    // Tier 5: Mastered words
-    if (word.state === 'known' && word.correctStreak >= 2) {
-      return Math.min(timeSinceLastAttempt / 60, 100);
+    // Known words: very low priority. Won't be picked while untested/learning
+    // exist (see selectQuizWords filter). Allows review eventually if nothing
+    // else is available.
+    if (word.state === 'known') {
+      return Math.min(timeSinceLastAttempt / 60, 150);
     }
 
     return 0;
@@ -290,10 +339,15 @@ const DataManager = {
 
     if (pool.length === 0) return [];
 
-    let scored = pool.map(w => ({ word: w, priority: this.getWordPriority(w) }));
+    // Prefer non-known words. Only fall back to known when there aren't
+    // enough untested/learning to fill the multiple-choice minimum.
+    const active = pool.filter(w => w.state !== 'known');
+    const workingPool = active.length >= 4 ? active : pool;
+
+    let scored = workingPool.map(w => ({ word: w, priority: this.getWordPriority(w) }));
     scored.sort((a, b) => b.priority - a.priority);
 
-    const size = Math.min(quizSize, pool.length);
+    const size = Math.min(quizSize, workingPool.length);
     return this.shuffleArray(scored.slice(0, size).map(s => s.word));
   },
 

@@ -26,7 +26,8 @@ const QuizEngine = {
       wrongCount: 0,
       wrongWords: [],
       newWordsLearned: 0,
-      startTime: Date.now()
+      startTime: Date.now(),
+      categoryIds: categoryIds || []
     };
 
     return this.currentQuiz;
@@ -196,7 +197,8 @@ const QuizEngine = {
       totalXPEarned: q.totalXPEarned || 0,
       xpProgress,
       dailyGoalJustCompleted,
-      newAchievements
+      newAchievements,
+      categoryIds: q.categoryIds || []
     };
   },
 
