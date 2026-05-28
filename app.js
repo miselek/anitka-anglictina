@@ -542,6 +542,11 @@ const App = {
       ? `<div class="feedback-ipa-big">${result.pronunciation}</div>` : '';
 
     if (result.isCorrect) {
+      // Audio: ding on correct, distinct level-up jingle if leveled up.
+      if (typeof Sounds !== 'undefined') {
+        if (result.levelUp) Sounds.levelUp();
+        else Sounds.ding();
+      }
       const comboHtml = result.combo >= 3
         ? `<div class="feedback-combo">${result.combo}× COMBO 🔥</div>` : '';
       const levelUpHtml = result.levelUp
@@ -575,6 +580,7 @@ const App = {
         }
       }, result.levelUp ? 3500 : 2500);
     } else {
+      if (typeof Sounds !== 'undefined') Sounds.buzz();
       feedback.innerHTML = `
         <div class="feedback-wrong">
           <div class="feedback-emoji-big">😕</div>
@@ -738,9 +744,16 @@ const App = {
     if (r.rewardEarned) {
       setTimeout(() => this.showReward(), 1000);
     }
-    // Confetti for perfect score or new achievements
+    // Sound + confetti party
+    if (typeof Sounds !== 'undefined') {
+      // Always play fanfare at end of quiz — that's the big dopamine hit.
+      Sounds.fanfare();
+    }
     if (r.accuracy === 100 || (r.newAchievements && r.newAchievements.length > 0)) {
       Confetti.start(3000);
+    } else if (r.accuracy >= 70) {
+      // Smaller burst for good (but not perfect) score
+      Confetti.start(1500);
     }
   },
 
