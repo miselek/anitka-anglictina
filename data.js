@@ -184,6 +184,28 @@ const DataManager = {
       this.data.version = 4;
       this.save();
     }
+    // v5: drop proper-name entries (Daisy, Jack, Tom...). These were dummy
+    // anglicky=jméno mappings that aren't actual vocabulary.
+    if (this.data.version < 5) {
+      const isProperName = (w) => {
+        const cz = (w.czech || '').toLowerCase().trim();
+        if (cz === 'jméno' || cz === 'name') return false; // legitimate word "name"
+        return /dívčí jméno|chlapecké jméno|jméno psa|^jméno,/i.test(cz);
+      };
+      const beforeWords = (this.data.words || []).length;
+      this.data.words = (this.data.words || []).filter(w => !isProperName(w));
+      const removed = beforeWords - this.data.words.length;
+      // Drop now-empty categories
+      const wordCatIds = new Set(this.data.words.map(w => w.categoryId));
+      const beforeCats = (this.data.categories || []).length;
+      this.data.categories = (this.data.categories || []).filter(c => wordCatIds.has(c.id));
+      const removedCats = beforeCats - this.data.categories.length;
+      this.data.version = 5;
+      this.save();
+      if (removed > 0 || removedCats > 0) {
+        console.log(`[migrate v5] Removed ${removed} proper-name entries and ${removedCats} empty categories.`);
+      }
+    }
   },
 
   generateId(prefix) {
