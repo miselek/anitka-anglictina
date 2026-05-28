@@ -142,6 +142,7 @@ const QuizEngine = {
       correctAnswer,
       englishWord: word.english,
       czechWord: word.czech,
+      pronunciation: word.pronunciation || '',
       xpGained: q.lastXP || 0,
       combo: q.lastCombo || 0,
       levelUp: q.lastLevelUp

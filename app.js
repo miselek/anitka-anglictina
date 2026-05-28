@@ -340,11 +340,12 @@ const App = {
       const xpText = `<span class="xp-popup">+${result.xpGained} XP</span>`;
       const levelUpText = result.levelUp ? `<div class="level-up-mini">🎉 LEVEL UP! Level ${result.levelUp.level}: ${result.levelUp.title}</div>` : '';
 
+      const ipaText = result.pronunciation ? ` <span class="feedback-ipa">${result.pronunciation}</span>` : '';
       feedback.innerHTML = `
         <div class="feedback-correct">
           <span class="feedback-emoji bounce">😊</span>
           <span class="feedback-text">Správně! ${xpText} ${comboText}</span>
-          <span class="feedback-word">${result.czechWord} = ${result.englishWord}</span>
+          <span class="feedback-word">${result.czechWord} = ${result.englishWord}${ipaText}</span>
           ${levelUpText}
         </div>
       `;
@@ -363,11 +364,12 @@ const App = {
         }
       }, result.levelUp ? 3500 : 2500);
     } else {
+      const ipaText = result.pronunciation ? ` <span class="feedback-ipa">${result.pronunciation}</span>` : '';
       feedback.innerHTML = `
         <div class="feedback-wrong">
           <span class="feedback-emoji">😕</span>
           <span class="feedback-text">Správná odpověď: <strong>${result.correctAnswer}</strong></span>
-          <span class="feedback-translation">${result.czechWord} = ${result.englishWord}</span>
+          <span class="feedback-translation">${result.czechWord} = ${result.englishWord}${ipaText}</span>
           <span class="combo-lost">Combo ztraceno!</span>
           <button class="btn btn-primary btn-next" onclick="App.advanceQuiz()">Další ➜</button>
         </div>
@@ -667,27 +669,28 @@ const App = {
       <div class="import-screen">
         <div class="import-header">
           <button class="btn btn-back" onclick="App.navigate('dashboard')">← Zpět</button>
-          <h2>📥 Import slovíček z Excelu</h2>
+          <h2>📥 Import slovíček (Excel / CSV)</h2>
         </div>
 
         <div class="import-instructions card">
           <h3>Formát souboru:</h3>
-          <p>Sloupec A = <strong>anglicky</strong>, Sloupec B = <strong>česky</strong></p>
-          <p>Každý <strong>list</strong> v Excelu = jeden okruh (název listu = název okruhu)</p>
+          <p>Pět sloupců: <strong>Česky | Anglicky | Výslovnost (IPA) | Učebnice | Téma</strong></p>
+          <p>Okruh (kategorie) v aplikaci se sestaví jako <strong>„Učebnice — Téma"</strong> (např. <em>Project 4 — Family</em>).</p>
+          <p>Výslovnost, Učebnice a Téma jsou volitelné. První řádek může být hlavička.</p>
           <div class="import-example">
             <table>
-              <tr><th>A (English)</th><th>B (Česky)</th></tr>
-              <tr><td>dog</td><td>pes</td></tr>
-              <tr><td>cat</td><td>kočka</td></tr>
-              <tr><td>house</td><td>dům</td></tr>
+              <tr><th>A Česky</th><th>B Anglicky</th><th>C Výslovnost</th><th>D Učebnice</th><th>E Téma</th></tr>
+              <tr><td>máma</td><td>mother</td><td>/ˈmʌðə/</td><td>Project 4</td><td>Family</td></tr>
+              <tr><td>škola</td><td>school</td><td>/skuːl/</td><td>Project 4</td><td>School</td></tr>
+              <tr><td>pes</td><td>dog</td><td>/dɒɡ/</td><td>Bridge 1</td><td>Animals</td></tr>
             </table>
           </div>
         </div>
 
         <div class="import-form card">
           <div class="form-group">
-            <label>Vyber soubor (.xls, .xlsx):</label>
-            <input type="file" id="import-file" accept=".xls,.xlsx" onchange="App.handleFileSelect(this)" class="input-file">
+            <label>Vyber soubor (.xls, .xlsx, .csv):</label>
+            <input type="file" id="import-file" accept=".xls,.xlsx,.csv" onchange="App.handleFileSelect(this)" class="input-file">
           </div>
 
           <div id="import-preview" style="display: none;"></div>
@@ -724,7 +727,7 @@ const App = {
               <div class="import-sheet-preview">
                 <h4>📚 ${sheet.name} (${sheet.words.length} slovíček)</h4>
                 ${sheet.words.slice(0, showCount).map(w => `
-                  <div class="preview-word">${w.english} → ${w.czech}</div>
+                  <div class="preview-word">${w.czech} → ${w.english}${w.pronunciation ? ` <span class="preview-ipa">${w.pronunciation}</span>` : ''}</div>
                 `).join('')}
                 ${sheet.words.length > showCount ? `<div class="preview-more">...a dalších ${sheet.words.length - showCount}</div>` : ''}
               </div>
@@ -893,7 +896,7 @@ const App = {
               ${words.map(w => `
                 <tr>
                   <td>${w.czech}</td>
-                  <td>${w.english}</td>
+                  <td>${w.english}${w.pronunciation ? ` <span class="word-ipa">${w.pronunciation}</span>` : ''}</td>
                   <td>${stateLabel(w.state)}</td>
                   <td><button class="btn-sound-small" onclick="SpeechManager.speak('${w.english.replace(/'/g, "\\'")}')">🔊</button></td>
                 </tr>

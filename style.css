@@ -1707,3 +1707,15 @@ body {
     display: none !important;
   }
 }
+
+/* === IPA pronunciation display === */
+.word-ipa,
+.preview-ipa,
+.feedback-ipa {
+  color: #777;
+  font-style: italic;
+  font-weight: normal;
+  font-size: 0.9em;
+  margin-left: 0.35em;
+  letter-spacing: 0.5px;
+}
