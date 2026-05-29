@@ -98,6 +98,19 @@ const SupabaseSync = {
       return;
     }
 
+    // Shrink guard: if we recently saw cloud had a significant amount of data
+    // and local now has fallen well below that, something destructive happened
+    // (cache miss + bug, network race, etc.). Refuse to commit the shrink.
+    try {
+      const lastCloudCount = parseInt(localStorage.getItem('anitka_cloud_word_count') || '0', 10);
+      const currentCount = (DataManager.data.words || []).length;
+      if (lastCloudCount >= 100 && currentCount < 100) {
+        console.warn(`[SupabaseSync] shrink guard: local=${currentCount} words vs last known cloud=${lastCloudCount}. Refusing to push.`);
+        this._setStatus('error', 'shrink-guard');
+        return;
+      }
+    } catch (e) { /* ignore */ }
+
     this.inFlight = true;
     try {
       const body = JSON.stringify({

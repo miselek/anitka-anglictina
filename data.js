@@ -92,6 +92,15 @@ const DataManager = {
     }
 
     if (result.data) {
+      // Remember the cloud's word count so the shrink-guard in _flush can
+      // refuse a destructive push if local later drops far below cloud.
+      try {
+        const cloudWordCount = (result.data.words || []).length;
+        if (cloudWordCount > 0) {
+          localStorage.setItem('anitka_cloud_word_count', String(cloudWordCount));
+        }
+      } catch (e) { /* ignore */ }
+
       const cloudUpdatedAt = result.data._updatedAt || new Date(result.updated_at).getTime();
       const localUpdatedAt = this.data._updatedAt || 0;
       const shouldReplace = this._localWasEmpty || cloudUpdatedAt > localUpdatedAt;
