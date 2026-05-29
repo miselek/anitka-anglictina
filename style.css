@@ -1936,8 +1936,48 @@ body {
 
 /* === Quiz feedback (replaces options after answer) === */
 .quiz-screen.feedback-shown .quiz-options,
-.quiz-screen.feedback-shown .quiz-question {
+.quiz-screen.feedback-shown .quiz-question,
+.quiz-screen.feedback-shown .quiz-input-wrap {
   display: none;
+}
+
+/* Typed-answer wrap (review of known words: CZ→EN, text input) */
+.quiz-input-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+.quiz-input-wrap .input-field {
+  font-size: 1.4rem;
+  min-height: 56px;
+  text-align: center;
+  padding: 14px 12px;
+  border: 2px solid #d7dff0;
+  border-radius: 12px;
+  background: white;
+  color: #235390;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.quiz-input-wrap .input-field:focus {
+  outline: none;
+  border-color: #58cc02;
+  box-shadow: 0 0 0 3px rgba(88, 204, 2, 0.2);
+}
+.quiz-input-wrap .btn {
+  min-height: 52px;
+  font-size: 1.05rem;
+}
+.quiz-mode-badge {
+  display: inline-block;
+  background: rgba(255,255,255,0.25);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  margin-left: 8px;
+  font-weight: 700;
 }
 .quiz-feedback {
   display: none;

@@ -469,6 +469,27 @@ const App = {
     }
 
     const flagEmoji = q.direction === 'cz_to_en' ? '🇨🇿 ➜ 🇬🇧' : '🇬🇧 ➜ 🇨🇿';
+    const modeBadge = q.mode === 'typed' ? '<span class="quiz-mode-badge">✍️ Napiš</span>' : '';
+
+    const answerBlock = q.mode === 'typed'
+      ? `
+        <div class="quiz-input-wrap" id="quiz-input-wrap">
+          <input type="text" id="quiz-typed-answer" class="input-field"
+                 autocomplete="off" autocorrect="off" autocapitalize="none"
+                 spellcheck="false" inputmode="text" placeholder="Napiš anglicky…"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();App.submitTypedAnswer();}">
+          <button class="btn btn-primary btn-large" onclick="App.submitTypedAnswer()">Odpovědět ✓</button>
+        </div>
+      `
+      : `
+        <div class="quiz-options" id="quiz-options">
+          ${q.options.map(opt => `
+            <button class="btn-option" onclick="App.handleAnswer('${opt.replace(/'/g, "\\'")}', this)" data-answer="${opt}">
+              ${opt}
+            </button>
+          `).join('')}
+        </div>
+      `;
 
     container.innerHTML = `
       <div class="quiz-screen">
@@ -480,7 +501,7 @@ const App = {
           <div class="quiz-progress-bar">
             <div class="quiz-progress-fill" style="width: ${(q.questionNumber / q.totalQuestions) * 100}%"></div>
           </div>
-          <div class="quiz-direction">${flagEmoji}</div>
+          <div class="quiz-direction">${flagEmoji} ${modeBadge}</div>
         </div>
 
         <div class="quiz-question">
@@ -489,13 +510,7 @@ const App = {
           <button class="btn-sound" onclick="${q.direction === 'en_to_cz' ? `SpeechManager.speak('${q.questionText.replace(/'/g, "\\'")}')` : `SpeechManager.speakCzech('${q.questionText.replace(/'/g, "\\'")}')`}">🔊</button>
         </div>
 
-        <div class="quiz-options" id="quiz-options">
-          ${q.options.map((opt, i) => `
-            <button class="btn-option" onclick="App.handleAnswer('${opt.replace(/'/g, "\\'")}', this)" data-answer="${opt}">
-              ${opt}
-            </button>
-          `).join('')}
-        </div>
+        ${answerBlock}
 
         <div class="quiz-feedback" id="quiz-feedback" style="display: none;"></div>
       </div>
@@ -507,6 +522,25 @@ const App = {
     } else {
       setTimeout(() => SpeechManager.speakCzech(q.questionText), 300);
     }
+
+    // Focus the input on typed-mode questions so the keyboard pops up on iOS.
+    if (q.mode === 'typed') {
+      requestAnimationFrame(() => {
+        const input = document.getElementById('quiz-typed-answer');
+        if (input) input.focus();
+      });
+    }
+  },
+
+  submitTypedAnswer() {
+    const input = document.getElementById('quiz-typed-answer');
+    if (!input || input.disabled) return;
+    const value = (input.value || '').trim();
+    if (!value) return;
+    input.disabled = true;
+    const result = QuizEngine.submitAnswer(value);
+    if (!result) return;
+    this._renderAnswerFeedback(result, value);
   },
 
   handleAnswer(selected, btnElement) {
@@ -517,10 +551,6 @@ const App = {
 
     const result = QuizEngine.submitAnswer(selected);
     if (!result) return;
-
-    const feedback = document.getElementById('quiz-feedback');
-    const container = document.getElementById('app-content');
-    const quizScreen = document.querySelector('.quiz-screen');
 
     // Highlight buttons (briefly visible while options fade out via CSS)
     options.forEach(btn => {
@@ -535,7 +565,15 @@ const App = {
       }
     });
 
-    // Hide options + question, take over screen with feedback panel.
+    this._renderAnswerFeedback(result, selected);
+  },
+
+  _renderAnswerFeedback(result, selected) {
+    const feedback = document.getElementById('quiz-feedback');
+    const container = document.getElementById('app-content');
+    const quizScreen = document.querySelector('.quiz-screen');
+
+    // Hide question + options/input, take over screen with feedback panel.
     if (quizScreen) quizScreen.classList.add('feedback-shown');
 
     const ipaHtml = result.pronunciation

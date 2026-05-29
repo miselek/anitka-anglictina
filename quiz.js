@@ -14,13 +14,13 @@ const QuizEngine = {
     }
 
     this.currentQuiz = {
-      queue: words.map(w => ({
-        word: w,
-        direction: DataManager.pickDirection(w),
-        answered: false,
-        correct: null,
-        userAnswer: null
-      })),
+      queue: words.map(w => {
+        const mode = w.state === 'known' ? 'typed' : 'choice';
+        // Typed-mode (review) always tests CZ → EN so Anitka has to recall
+        // and write the English form, not just recognize Czech.
+        const direction = mode === 'typed' ? 'cz_to_en' : DataManager.pickDirection(w);
+        return { word: w, direction, mode, answered: false, correct: null, userAnswer: null };
+      }),
       currentIndex: 0,
       correctCount: 0,
       wrongCount: 0,
@@ -58,9 +58,14 @@ const QuizEngine = {
       answerLang = 'cz';
     }
 
-    // Generate options
-    const distractors = DataManager.generateDistractors(word, direction, 3);
-    const options = DataManager.shuffleArray([correctAnswer, ...distractors]);
+    // Distractor options only for choice mode; typed mode uses a text input.
+    const isTyped = item.mode === 'typed';
+    const options = isTyped
+      ? null
+      : DataManager.shuffleArray([
+          correctAnswer,
+          ...DataManager.generateDistractors(word, direction, 3)
+        ]);
 
     return {
       questionText,
@@ -68,6 +73,7 @@ const QuizEngine = {
       correctAnswer,
       answerLang,
       options,
+      mode: item.mode || 'choice',
       direction,
       word,
       questionNumber: q.currentIndex + 1,
@@ -128,10 +134,11 @@ const QuizEngine = {
         correctAnswer
       });
 
-      // Re-add word to end of queue for another try
+      // Re-add word to end of queue for another try (keep typed/choice mode).
       q.queue.push({
         word: word,
         direction: direction,
+        mode: item.mode,
         answered: false,
         correct: null,
         userAnswer: null

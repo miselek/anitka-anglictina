@@ -358,19 +358,32 @@ const DataManager = {
     if (selectedCategories && selectedCategories.length > 0) {
       pool = pool.filter(w => selectedCategories.includes(w.categoryId));
     }
-
     if (pool.length === 0) return [];
 
-    // Prefer non-known words. Only fall back to known when there aren't
-    // enough untested/learning to fill the multiple-choice minimum.
-    const active = pool.filter(w => w.state !== 'known');
-    const workingPool = active.length >= 4 ? active : pool;
+    // Mix: half new (untested + learning) + half known (typed review).
+    // If one side is short, fill from the other.
+    const halfNew = Math.floor(quizSize / 2);
+    const newPool   = pool.filter(w => w.state !== 'known');
+    const knownPool = pool.filter(w => w.state === 'known');
 
-    let scored = workingPool.map(w => ({ word: w, priority: this.getWordPriority(w) }));
-    scored.sort((a, b) => b.priority - a.priority);
+    const top = (arr, n) => {
+      const scored = arr.map(w => ({ word: w, p: this.getWordPriority(w) }));
+      scored.sort((a, b) => b.p - a.p);
+      return scored.slice(0, n).map(s => s.word);
+    };
 
-    const size = Math.min(quizSize, workingPool.length);
-    return this.shuffleArray(scored.slice(0, size).map(s => s.word));
+    let news   = top(newPool, halfNew);
+    let knowns = top(knownPool, quizSize - halfNew);
+
+    // Top-up from the other side if one side is short.
+    if (news.length < halfNew) {
+      knowns = top(knownPool, quizSize - news.length);
+    }
+    if (knowns.length < (quizSize - halfNew)) {
+      news = top(newPool, quizSize - knowns.length);
+    }
+
+    return this.shuffleArray([...news, ...knowns]);
   },
 
   pickDirection(word) {
