@@ -75,20 +75,29 @@ const DataManager = {
       this._suppressCloudSave = true;
       if (typeof SupabaseSync.cancelPending === 'function') SupabaseSync.cancelPending();
     }
-    let cloud = null;
+    let result = null;
     try {
-      cloud = await SupabaseSync.load();
+      result = await SupabaseSync.load();
     } finally {
       this._suppressCloudSave = false;
     }
 
-    if (cloud && cloud.data) {
-      const cloudUpdatedAt = cloud.data._updatedAt || new Date(cloud.updated_at).getTime();
+    if (!result || result.error) {
+      // Fetch failed — DO NOT push local up. We could otherwise overwrite the
+      // user's real cloud data with the just-loaded default starter set.
+      if (result && result.error) {
+        console.warn('[syncFromCloud] cloud unreachable:', result.error, '— keeping local, not pushing.');
+      }
+      return false;
+    }
+
+    if (result.data) {
+      const cloudUpdatedAt = result.data._updatedAt || new Date(result.updated_at).getTime();
       const localUpdatedAt = this.data._updatedAt || 0;
       const shouldReplace = this._localWasEmpty || cloudUpdatedAt > localUpdatedAt;
       if (shouldReplace) {
         if (typeof SupabaseSync.cancelPending === 'function') SupabaseSync.cancelPending();
-        this.data = cloud.data;
+        this.data = result.data;
         // Cloud may have an older schema version (saved before a migration
         // was added). Run migrations so the new code sees clean state.
         this.migrate();
@@ -100,8 +109,28 @@ const DataManager = {
       return false;
     }
 
-    // Cloud is empty — push local up so next device sees it.
-    if (typeof SupabaseSync.scheduleSave === 'function') SupabaseSync.scheduleSave();
+    if (result.empty) {
+      // Cloud truly has no row for this user. Push local up ONLY if local
+      // has real user content — never just-loaded defaults, which would
+      // wipe the user's actual data the next time another device opens
+      // the app and reads the (now-trashed) cloud row.
+      if (this._hasUserContent() && typeof SupabaseSync.scheduleSave === 'function') {
+        SupabaseSync.scheduleSave();
+      }
+      return false;
+    }
+
+    return false;
+  },
+
+  _hasUserContent() {
+    if (!this.data) return false;
+    const stats = this.data.stats || {};
+    if ((stats.totalSessions || 0) > 0) return true;
+    if ((stats.totalCorrectAnswers || 0) > 0) return true;
+    if ((stats.xp || 0) > 0) return true;
+    // Anything past the default ~55 starter set is treated as user content.
+    if ((this.data.words || []).length > 60) return true;
     return false;
   },
 

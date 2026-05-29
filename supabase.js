@@ -40,8 +40,12 @@ const SupabaseSync = {
     }
   },
 
+  // Returns one of:
+  //   { data, updated_at }   — cloud row exists with payload
+  //   { empty: true }        — confirmed empty (HTTP 200, 0 rows)
+  //   { error: 'reason' }    — fetch / HTTP failed; caller MUST NOT treat as empty
   async load() {
-    if (!this.enabled) return null;
+    if (!this.enabled) return { error: 'disabled' };
     try {
       const r = await fetch(
         `${this.URL}/rest/v1/${this.TABLE}?user_id=eq.${encodeURIComponent(this.USER_ID)}&select=data,updated_at`,
@@ -49,19 +53,19 @@ const SupabaseSync = {
       );
       if (!r.ok) {
         this._setStatus('error', `HTTP ${r.status}`);
-        return null;
+        return { error: `http-${r.status}` };
       }
       const rows = await r.json();
       if (!rows || rows.length === 0) {
         this._setStatus('ok');
-        return null;
+        return { empty: true };
       }
       this._setStatus('ok');
       return rows[0]; // { data, updated_at }
     } catch (e) {
       this._setStatus('error', e.message);
       console.warn('[SupabaseSync] load failed:', e.message);
-      return null;
+      return { error: e.message || 'fetch-failed' };
     }
   },
 
@@ -83,6 +87,17 @@ const SupabaseSync = {
       return;
     }
     if (typeof DataManager === 'undefined' || !DataManager.data) return;
+
+    // Defensive: never push a pure-default state up. If the user truly wants
+    // to start over they can do so via the in-app reset (which keeps their
+    // words). A pure-default push is almost always a bug — e.g., localStorage
+    // was wiped + cloud fetch raced — and it would silently destroy data.
+    if (typeof DataManager._hasUserContent === 'function' && !DataManager._hasUserContent()) {
+      console.warn('[SupabaseSync] refusing to push default-only state to cloud.');
+      this._setStatus('ok');
+      return;
+    }
+
     this.inFlight = true;
     try {
       const body = JSON.stringify({
