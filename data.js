@@ -3,12 +3,26 @@
 // =====================================================
 
 const DataManager = {
-  STORAGE_KEY: 'anitka_app',
   data: null,
+
+  // Per-user storage key. Falls back to legacy 'anitka_app' if no user
+  // is logged in (shouldn't happen in normal flow once login is enforced).
+  get STORAGE_KEY() {
+    if (typeof Auth !== 'undefined' && Auth.getCurrent) {
+      const u = Auth.getCurrent();
+      if (u) return `anitka_app_${u.id}`;
+    }
+    return 'anitka_app';
+  },
 
   load() {
     try {
+      // Backward-compat: if a legacy 'anitka_app' row exists and we're
+      // logged in as Anitka, migrate it to the namespaced key once.
+      this._migrateLegacyKeyIfNeeded();
+
       const raw = localStorage.getItem(this.STORAGE_KEY);
+      this._localWasEmpty = !raw;
       if (raw) {
         this.data = JSON.parse(raw);
         this.migrate();
@@ -18,17 +32,115 @@ const DataManager = {
       }
     } catch (e) {
       console.error('Failed to load data:', e);
+      this._localWasEmpty = true;
       this.data = this.getDefaultData();
       this.save();
     }
   },
 
+  _migrateLegacyKeyIfNeeded() {
+    try {
+      const legacy = localStorage.getItem('anitka_app');
+      if (!legacy) return;
+      // Only migrate when currently logged in as Anitka (legacy data is hers).
+      const u = typeof Auth !== 'undefined' && Auth.getCurrent ? Auth.getCurrent() : null;
+      if (!u || u.id !== 'anitka') return;
+      const targetKey = `anitka_app_${u.id}`;
+      if (!localStorage.getItem(targetKey)) {
+        localStorage.setItem(targetKey, legacy);
+      }
+      localStorage.removeItem('anitka_app');
+    } catch (e) { /* ignore */ }
+  },
+
   save() {
     try {
+      this.data._updatedAt = Date.now();
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
     } catch (e) {
       console.error('Failed to save data:', e);
     }
+    // Fire-and-forget cloud sync (debounced inside SupabaseSync).
+    // Suppressed during initial cloud-restore window.
+    if (typeof SupabaseSync !== 'undefined' && SupabaseSync.enabled && !this._suppressCloudSave) {
+      SupabaseSync.scheduleSave();
+    }
+  },
+
+  async syncFromCloud() {
+    if (typeof SupabaseSync === 'undefined' || !SupabaseSync.enabled) return false;
+    // While we wait for cloud, suppress local→cloud writes so default-words
+    // loading on a fresh device doesn't overwrite the user's real cloud data.
+    if (this._localWasEmpty) {
+      this._suppressCloudSave = true;
+      if (typeof SupabaseSync.cancelPending === 'function') SupabaseSync.cancelPending();
+    }
+    let result = null;
+    try {
+      result = await SupabaseSync.load();
+    } finally {
+      this._suppressCloudSave = false;
+    }
+
+    if (!result || result.error) {
+      // Fetch failed — DO NOT push local up. We could otherwise overwrite the
+      // user's real cloud data with the just-loaded default starter set.
+      if (result && result.error) {
+        console.warn('[syncFromCloud] cloud unreachable:', result.error, '— keeping local, not pushing.');
+      }
+      return false;
+    }
+
+    if (result.data) {
+      // Remember the cloud's word count so the shrink-guard in _flush can
+      // refuse a destructive push if local later drops far below cloud.
+      try {
+        const cloudWordCount = (result.data.words || []).length;
+        if (cloudWordCount > 0) {
+          localStorage.setItem('anitka_cloud_word_count', String(cloudWordCount));
+        }
+      } catch (e) { /* ignore */ }
+
+      const cloudUpdatedAt = result.data._updatedAt || new Date(result.updated_at).getTime();
+      const localUpdatedAt = this.data._updatedAt || 0;
+      const shouldReplace = this._localWasEmpty || cloudUpdatedAt > localUpdatedAt;
+      if (shouldReplace) {
+        if (typeof SupabaseSync.cancelPending === 'function') SupabaseSync.cancelPending();
+        this.data = result.data;
+        // Cloud may have an older schema version (saved before a migration
+        // was added). Run migrations so the new code sees clean state.
+        this.migrate();
+        try {
+          localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
+        } catch (e) { /* ignore */ }
+        return true;
+      }
+      return false;
+    }
+
+    if (result.empty) {
+      // Cloud truly has no row for this user. Push local up ONLY if local
+      // has real user content — never just-loaded defaults, which would
+      // wipe the user's actual data the next time another device opens
+      // the app and reads the (now-trashed) cloud row.
+      if (this._hasUserContent() && typeof SupabaseSync.scheduleSave === 'function') {
+        SupabaseSync.scheduleSave();
+      }
+      return false;
+    }
+
+    return false;
+  },
+
+  _hasUserContent() {
+    if (!this.data) return false;
+    const stats = this.data.stats || {};
+    if ((stats.totalSessions || 0) > 0) return true;
+    if ((stats.totalCorrectAnswers || 0) > 0) return true;
+    if ((stats.xp || 0) > 0) return true;
+    // Anything past the default ~55 starter set is treated as user content.
+    if ((this.data.words || []).length > 60) return true;
+    return false;
   },
 
   getDefaultData() {
@@ -83,6 +195,55 @@ const DataManager = {
       this.data.version = 2;
       this.save();
     }
+    // v3: one-correct-is-known semantics. Promote any 'learning' words that
+    // have at least one correct answer and never were wrong to 'known'.
+    if (this.data.version < 3) {
+      let changed = 0;
+      for (const w of this.data.words || []) {
+        if (w.state === 'learning' && (w.wrongCount || 0) === 0 && (w.correctStreak || 0) >= 1) {
+          w.state = 'known';
+          changed++;
+        }
+      }
+      this.data.version = 3;
+      this.save();
+      if (changed > 0) console.log(`[migrate v3] Promoted ${changed} learning words to known.`);
+    }
+    // v4: remove bogus "Přehled" category created by an early importer bug
+    // that read the summary sheet from the Happy House/Street xlsx as words.
+    if (this.data.version < 4) {
+      const bogus = (this.data.categories || []).find(c => c.name === 'Přehled');
+      if (bogus) {
+        const removedWords = (this.data.words || []).filter(w => w.categoryId === bogus.id).length;
+        this.data.categories = this.data.categories.filter(c => c.id !== bogus.id);
+        this.data.words = this.data.words.filter(w => w.categoryId !== bogus.id);
+        console.log(`[migrate v4] Removed Přehled category and ${removedWords} bogus words.`);
+      }
+      this.data.version = 4;
+      this.save();
+    }
+    // v5: drop proper-name entries (Daisy, Jack, Tom...). These were dummy
+    // anglicky=jméno mappings that aren't actual vocabulary.
+    if (this.data.version < 5) {
+      const isProperName = (w) => {
+        const cz = (w.czech || '').toLowerCase().trim();
+        if (cz === 'jméno' || cz === 'name') return false; // legitimate word "name"
+        return /dívčí jméno|chlapecké jméno|jméno psa|^jméno,/i.test(cz);
+      };
+      const beforeWords = (this.data.words || []).length;
+      this.data.words = (this.data.words || []).filter(w => !isProperName(w));
+      const removed = beforeWords - this.data.words.length;
+      // Drop now-empty categories
+      const wordCatIds = new Set(this.data.words.map(w => w.categoryId));
+      const beforeCats = (this.data.categories || []).length;
+      this.data.categories = (this.data.categories || []).filter(c => wordCatIds.has(c.id));
+      const removedCats = beforeCats - this.data.categories.length;
+      this.data.version = 5;
+      this.save();
+      if (removed > 0 || removedCats > 0) {
+        console.log(`[migrate v5] Removed ${removed} proper-name entries and ${removedCats} empty categories.`);
+      }
+    }
   },
 
   generateId(prefix) {
@@ -118,6 +279,10 @@ const DataManager = {
           id: this.generateId('w'),
           czech: pair.czech,
           english: pair.english,
+          pronunciation: pair.pronunciation || '',
+          textbook: pair.textbook || '',
+          topic: pair.topic || '',
+          frequency: pair.frequency || 0,
           categoryId: category.id,
           state: 'untested',
           correctStreak: 0,
@@ -155,22 +320,16 @@ const DataManager = {
       if (direction === 'cz_to_en') word.czToEnCorrect++;
       else word.enToCzCorrect++;
 
-      // State transitions
-      if (word.state === 'untested') {
-        word.state = 'learning';
-      }
-      if (word.state === 'learning' && word.correctStreak >= 2) {
+      // Single correct = naučeno. Don't bring it back to the quiz queue.
+      // Known + correct also stays known (streak grows for stats).
+      if (word.state !== 'known') {
         word.state = 'known';
-        word.correctStreak = 0; // reset for review tracking
       }
     } else {
       word.wrongCount++;
       word.correctStreak = 0;
-
-      if (word.state === 'untested') {
-        word.state = 'learning';
-      }
-      // If known word answered wrong, keep state but streak resets
+      // Wrong → put it back in the learning pool, regardless of prior state.
+      word.state = 'learning';
     }
 
     this.save();
@@ -215,19 +374,18 @@ const DataManager = {
       return 500 + Math.min(timeSinceLastAttempt, 500);
     }
 
-    // Tier 3: Untested words
+    // Tier 3: Untested words. Boost by frequency so the most-used words
+    // are taught first. Frequency is 0 for words without freq data.
     if (word.state === 'untested') {
-      return 300 + Math.random() * 50;
+      const freqBoost = Math.min((word.frequency || 0) * 8, 100);
+      return 300 + freqBoost + Math.random() * 20;
     }
 
-    // Tier 4: Known words needing review (streak < 2)
-    if (word.state === 'known' && word.correctStreak < 2) {
-      return 200 + Math.min(timeSinceLastAttempt / 10, 200);
-    }
-
-    // Tier 5: Mastered words
-    if (word.state === 'known' && word.correctStreak >= 2) {
-      return Math.min(timeSinceLastAttempt / 60, 100);
+    // Known words: very low priority. Won't be picked while untested/learning
+    // exist (see selectQuizWords filter). Allows review eventually if nothing
+    // else is available.
+    if (word.state === 'known') {
+      return Math.min(timeSinceLastAttempt / 60, 150);
     }
 
     return 0;
@@ -238,14 +396,32 @@ const DataManager = {
     if (selectedCategories && selectedCategories.length > 0) {
       pool = pool.filter(w => selectedCategories.includes(w.categoryId));
     }
-
     if (pool.length === 0) return [];
 
-    let scored = pool.map(w => ({ word: w, priority: this.getWordPriority(w) }));
-    scored.sort((a, b) => b.priority - a.priority);
+    // Mix: half new (untested + learning) + half known (typed review).
+    // If one side is short, fill from the other.
+    const halfNew = Math.floor(quizSize / 2);
+    const newPool   = pool.filter(w => w.state !== 'known');
+    const knownPool = pool.filter(w => w.state === 'known');
 
-    const size = Math.min(quizSize, pool.length);
-    return this.shuffleArray(scored.slice(0, size).map(s => s.word));
+    const top = (arr, n) => {
+      const scored = arr.map(w => ({ word: w, p: this.getWordPriority(w) }));
+      scored.sort((a, b) => b.p - a.p);
+      return scored.slice(0, n).map(s => s.word);
+    };
+
+    let news   = top(newPool, halfNew);
+    let knowns = top(knownPool, quizSize - halfNew);
+
+    // Top-up from the other side if one side is short.
+    if (news.length < halfNew) {
+      knowns = top(knownPool, quizSize - news.length);
+    }
+    if (knowns.length < (quizSize - halfNew)) {
+      news = top(newPool, quizSize - knowns.length);
+    }
+
+    return this.shuffleArray([...news, ...knowns]);
   },
 
   pickDirection(word) {

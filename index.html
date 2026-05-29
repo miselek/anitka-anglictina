@@ -2,11 +2,19 @@
 <html lang="cs">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Anitka AJ">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#235390">
+  <meta name="format-detection" content="telephone=no">
   <title>Anitčina Angličtina 🌟</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌟</text></svg>">
 </head>
 <body>
@@ -26,8 +34,11 @@
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
   <!-- Application scripts (order matters!) -->
+  <script src="auth.js"></script>
+  <script src="supabase.js"></script>
   <script src="data.js"></script>
   <script src="speech.js"></script>
+  <script src="sounds.js"></script>
   <script src="confetti.js"></script>
   <script src="quiz.js"></script>
   <script src="import.js"></script>

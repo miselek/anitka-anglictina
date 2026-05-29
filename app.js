@@ -6,11 +6,135 @@ const App = {
   currentScreen: 'dashboard',
 
   init() {
+    SpeechManager.init();
+
+    if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) {
+      this.renderLogin();
+      return;
+    }
+
+    this.bootAuthenticated();
+  },
+
+  bootAuthenticated() {
     DataManager.load();
     DefaultWords.load();
-    SpeechManager.init();
     this.renderHeader();
     this.navigate('dashboard');
+
+    if (typeof DataManager.syncFromCloud === 'function') {
+      DataManager.syncFromCloud().then(changed => {
+        if (changed) {
+          this.renderHeader();
+          this.navigate(this.currentScreen || 'dashboard');
+        }
+      });
+    }
+  },
+
+  renderLogin(selectedUserId, error) {
+    // Clear header — no logged-in user yet.
+    const header = document.getElementById('app-header');
+    if (header) header.innerHTML = '';
+
+    const content = document.getElementById('app-content');
+    const users = Auth.USERS;
+
+    if (!selectedUserId) {
+      // Step 1: pick user
+      content.innerHTML = `
+        <div class="login-screen">
+          <div class="login-title">
+            <div class="login-logo">🌟</div>
+            <h1>Anitčina Angličtina</h1>
+            <p>Kdo jsi?</p>
+          </div>
+          <div class="user-picker">
+            ${users.map(u => `
+              <button class="user-tile" style="--user-color: ${u.color}" onclick="App.renderLogin('${u.id}')">
+                <div class="user-emoji">${u.emoji}</div>
+                <div class="user-name">${u.name}</div>
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    // Step 2: enter PIN
+    const user = users.find(u => u.id === selectedUserId);
+    if (!user) { this.renderLogin(); return; }
+
+    content.innerHTML = `
+      <div class="login-screen">
+        <div class="login-title">
+          <div class="login-user-emoji">${user.emoji}</div>
+          <h2>${user.name}, zadej PIN</h2>
+          ${error ? `<div class="login-error">${error}</div>` : ''}
+        </div>
+        <div class="pin-display" id="pin-display">
+          <span class="pin-dot empty"></span>
+          <span class="pin-dot empty"></span>
+          <span class="pin-dot empty"></span>
+          <span class="pin-dot empty"></span>
+        </div>
+        <div class="pin-keypad">
+          ${[1,2,3,4,5,6,7,8,9].map(n => `<button class="pin-key" onclick="App.pinPress('${n}')">${n}</button>`).join('')}
+          <button class="pin-key pin-key-back" onclick="App.renderLogin()">←</button>
+          <button class="pin-key" onclick="App.pinPress('0')">0</button>
+          <button class="pin-key pin-key-clear" onclick="App.pinClear()">⌫</button>
+        </div>
+        <div class="login-hint">Zapomenuté PIN? Zeptej se táty.</div>
+      </div>
+    `;
+    this._pinBuffer = '';
+    this._pinUserId = selectedUserId;
+  },
+
+  pinPress(digit) {
+    if (!this._pinBuffer) this._pinBuffer = '';
+    if (this._pinBuffer.length >= 4) return;
+    this._pinBuffer += digit;
+    this._updatePinDisplay();
+    if (this._pinBuffer.length === 4) {
+      setTimeout(() => this._submitPin(), 150);
+    }
+  },
+
+  pinClear() {
+    if (!this._pinBuffer) return;
+    this._pinBuffer = this._pinBuffer.slice(0, -1);
+    this._updatePinDisplay();
+  },
+
+  _updatePinDisplay() {
+    const display = document.getElementById('pin-display');
+    if (!display) return;
+    const buf = this._pinBuffer || '';
+    display.innerHTML = [0,1,2,3].map(i => `<span class="pin-dot ${i < buf.length ? 'filled' : 'empty'}"></span>`).join('');
+  },
+
+  _submitPin() {
+    const result = Auth.login(this._pinUserId, this._pinBuffer);
+    if (result.ok) {
+      this._pinBuffer = '';
+      this._pinUserId = null;
+      this.bootAuthenticated();
+    } else {
+      // Flash error, clear buffer
+      this._pinBuffer = '';
+      this._updatePinDisplay();
+      this.renderLogin(this._pinUserId, result.error);
+    }
+  },
+
+  logout() {
+    if (!confirm('Opravdu se chceš odhlásit?')) return;
+    Auth.logout();
+    // Reset transient state
+    this.currentScreen = 'dashboard';
+    this.renderLogin();
   },
 
   navigate(screen, params) {
@@ -52,6 +176,14 @@ const App = {
     const pctLearning = progress.total > 0 ? (progress.learning / progress.total) * 100 : 0;
     const pctUntested = progress.total > 0 ? (progress.untested / progress.total) * 100 : 0;
 
+    const currentUser = typeof Auth !== 'undefined' && Auth.getCurrent ? Auth.getCurrent() : null;
+    const userBadge = currentUser
+      ? `<button class="header-user" onclick="App.logout()" title="Odhlásit">
+           <span class="header-user-emoji">${currentUser.emoji}</span>
+           <span class="header-user-name">${currentUser.name}</span>
+         </button>`
+      : '';
+
     header.innerHTML = `
       <div class="header-inner">
         <div class="header-top-row">
@@ -60,6 +192,7 @@ const App = {
             <span>Anitčina Angličtina</span>
           </div>
           <div class="header-badges">
+            ${userBadge}
             <span class="header-badge" title="Level ${xp.level}: ${xp.title}">⭐ ${xp.level}</span>
             <span class="header-badge" title="${stats.currentStreak} dní v řadě">${stats.currentStreak > 0 ? '🔥' : '❄️'} ${stats.currentStreak}</span>
             <span class="header-badge" title="XP body">💎 ${xp.xp}</span>
@@ -95,22 +228,63 @@ const App = {
     const daily = DataManager.getDailyProgress();
     const stats = DataManager.data.stats;
 
-    let categoriesHtml = catStats.map(cat => `
-      <div class="category-card" onclick="App.navigate('quiz', { categoryIds: ['${cat.id}'] })">
-        <div class="category-icon">${cat.icon}</div>
-        <div class="category-name">${cat.name}</div>
-        <div class="category-name-en">${cat.nameEn}</div>
-        <div class="category-progress-ring">
-          <svg viewBox="0 0 36 36">
-            <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-            <path class="ring-fg" stroke-dasharray="${cat.percentage}, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-          </svg>
-          <div class="ring-text">${cat.percentage}%</div>
+    // Group categories by textbook (prefix before " — ").
+    const SEP = ' — ';
+    const groups = new Map();
+    for (const cat of catStats) {
+      const idx = cat.name.indexOf(SEP);
+      const textbook = idx > 0 ? cat.name.slice(0, idx) : 'Ostatní';
+      const subname = idx > 0 ? cat.name.slice(idx + SEP.length) : cat.name;
+      if (!groups.has(textbook)) groups.set(textbook, []);
+      groups.get(textbook).push({ ...cat, subname });
+    }
+    // Stable order: textbooks alphabetical, "Ostatní" last.
+    const groupNames = Array.from(groups.keys()).sort((a, b) => {
+      if (a === 'Ostatní') return 1;
+      if (b === 'Ostatní') return -1;
+      return a.localeCompare(b, 'cs');
+    });
+
+    // Collapse state stored in localStorage; default collapsed when there
+    // are many groups (>2).
+    const collapseKey = 'anitka_dashboard_groups_open';
+    let openGroups = {};
+    try { openGroups = JSON.parse(localStorage.getItem(collapseKey) || '{}'); } catch (e) {}
+    const defaultOpen = groupNames.length <= 2;
+
+    const groupsHtml = groupNames.map(name => {
+      const cats = groups.get(name);
+      const totals = cats.reduce((acc, c) => {
+        acc.total += c.total; acc.known += c.known; acc.learning += c.learning; acc.untested += c.untested;
+        return acc;
+      }, { total: 0, known: 0, learning: 0, untested: 0 });
+      const pct = totals.total > 0 ? Math.round((totals.known / totals.total) * 100) : 0;
+      const isOpen = openGroups[name] !== undefined ? openGroups[name] : defaultOpen;
+      const cardsHtml = cats.map(cat => `
+        <div class="category-card category-card-compact" onclick="App.navigate('quiz', { categoryIds: ['${cat.id}'] })">
+          <div class="category-card-row">
+            <div class="category-name">${cat.subname}</div>
+            <div class="category-count">${cat.known}/${cat.total}</div>
+          </div>
+          <div class="category-mini-bar">
+            <div class="bar-known" style="width: ${cat.percentage}%"></div>
+          </div>
+          <button class="btn-tiny-detail" onclick="event.stopPropagation(); App.navigate('category-words', { categoryId: '${cat.id}' })">📋</button>
         </div>
-        <div class="category-count">${cat.known}/${cat.total}</div>
-        <button class="btn btn-small btn-category-detail" onclick="event.stopPropagation(); App.navigate('category-words', { categoryId: '${cat.id}' })">📋 Detail</button>
-      </div>
-    `).join('');
+      `).join('');
+      return `
+        <div class="textbook-group ${isOpen ? 'open' : 'closed'}" data-group="${name}">
+          <button class="textbook-group-header" onclick="App.toggleGroup('${name.replace(/'/g, "\\'")}')">
+            <span class="textbook-group-name">📖 ${name}</span>
+            <span class="textbook-group-meta">${totals.known}/${totals.total} · ${pct}%</span>
+            <span class="textbook-group-chevron">${isOpen ? '▾' : '▸'}</span>
+          </button>
+          <div class="textbook-group-body">
+            ${cardsHtml}
+          </div>
+        </div>
+      `;
+    }).join('');
 
     // Reward banner
     let rewardBanner = '';
@@ -196,24 +370,28 @@ const App = {
       </div>
     ` : '';
 
+    const remaining = progress.total - progress.known;
+    const practiceAllSize = Math.min(DataManager.data.settings.quizSize, remaining);
+    const practiceAllButton = remaining >= 4
+      ? `<button class="btn btn-primary btn-procvicovat-vse" onclick="App.navigate('quiz')">
+           🎯 Procvičovat vše<br>
+           <span class="btn-sub">${practiceAllSize} slov · zbývá naučit ${remaining}</span>
+         </button>`
+      : `<div class="all-done-banner">🏆 Všechno už umíš! Skvělá práce.</div>`;
+
     container.innerHTML = `
       <div class="dashboard">
         ${rewardBanner}
-        ${levelCard}
+        ${practiceAllButton}
         ${dailyCard}
+        ${levelCard}
         ${streakCard}
-
-        <div class="action-buttons">
-          <button class="btn btn-primary btn-large" onclick="App.navigate('quiz')">
-            🎯 Procvičovat vše
-          </button>
-        </div>
 
         ${achievementsPreview}
 
-        <h2 class="section-title">📚 Okruhy</h2>
-        <div class="categories-grid">
-          ${categoriesHtml}
+        <h2 class="section-title">📚 Učebnice a okruhy</h2>
+        <div class="textbook-groups">
+          ${groupsHtml}
         </div>
 
         <div class="action-buttons bottom-actions">
@@ -232,6 +410,27 @@ const App = {
         </div>
       </div>
     `;
+  },
+
+  toggleGroup(name) {
+    const collapseKey = 'anitka_dashboard_groups_open';
+    let openGroups = {};
+    try { openGroups = JSON.parse(localStorage.getItem(collapseKey) || '{}'); } catch (e) {}
+    const groupEl = document.querySelector(`.textbook-group[data-group="${CSS.escape(name)}"]`);
+    if (!groupEl) return;
+    const wasOpen = groupEl.classList.contains('open');
+    if (wasOpen) {
+      groupEl.classList.remove('open');
+      groupEl.classList.add('closed');
+      openGroups[name] = false;
+    } else {
+      groupEl.classList.add('open');
+      groupEl.classList.remove('closed');
+      openGroups[name] = true;
+    }
+    const chevron = groupEl.querySelector('.textbook-group-chevron');
+    if (chevron) chevron.textContent = wasOpen ? '▸' : '▾';
+    try { localStorage.setItem(collapseKey, JSON.stringify(openGroups)); } catch (e) {}
   },
 
   // =============================================
@@ -270,6 +469,27 @@ const App = {
     }
 
     const flagEmoji = q.direction === 'cz_to_en' ? '🇨🇿 ➜ 🇬🇧' : '🇬🇧 ➜ 🇨🇿';
+    const modeBadge = q.mode === 'typed' ? '<span class="quiz-mode-badge">✍️ Napiš</span>' : '';
+
+    const answerBlock = q.mode === 'typed'
+      ? `
+        <div class="quiz-input-wrap" id="quiz-input-wrap">
+          <input type="text" id="quiz-typed-answer" class="input-field"
+                 autocomplete="off" autocorrect="off" autocapitalize="none"
+                 spellcheck="false" inputmode="text" placeholder="Napiš anglicky…"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();App.submitTypedAnswer();}">
+          <button class="btn btn-primary btn-large" onclick="App.submitTypedAnswer()">Odpovědět ✓</button>
+        </div>
+      `
+      : `
+        <div class="quiz-options" id="quiz-options">
+          ${q.options.map(opt => `
+            <button class="btn-option" onclick="App.handleAnswer('${opt.replace(/'/g, "\\'")}', this)" data-answer="${opt}">
+              ${opt}
+            </button>
+          `).join('')}
+        </div>
+      `;
 
     container.innerHTML = `
       <div class="quiz-screen">
@@ -281,7 +501,7 @@ const App = {
           <div class="quiz-progress-bar">
             <div class="quiz-progress-fill" style="width: ${(q.questionNumber / q.totalQuestions) * 100}%"></div>
           </div>
-          <div class="quiz-direction">${flagEmoji}</div>
+          <div class="quiz-direction">${flagEmoji} ${modeBadge}</div>
         </div>
 
         <div class="quiz-question">
@@ -290,13 +510,7 @@ const App = {
           <button class="btn-sound" onclick="${q.direction === 'en_to_cz' ? `SpeechManager.speak('${q.questionText.replace(/'/g, "\\'")}')` : `SpeechManager.speakCzech('${q.questionText.replace(/'/g, "\\'")}')`}">🔊</button>
         </div>
 
-        <div class="quiz-options" id="quiz-options">
-          ${q.options.map((opt, i) => `
-            <button class="btn-option" onclick="App.handleAnswer('${opt.replace(/'/g, "\\'")}', this)" data-answer="${opt}">
-              ${opt}
-            </button>
-          `).join('')}
-        </div>
+        ${answerBlock}
 
         <div class="quiz-feedback" id="quiz-feedback" style="display: none;"></div>
       </div>
@@ -308,6 +522,25 @@ const App = {
     } else {
       setTimeout(() => SpeechManager.speakCzech(q.questionText), 300);
     }
+
+    // Focus the input on typed-mode questions so the keyboard pops up on iOS.
+    if (q.mode === 'typed') {
+      requestAnimationFrame(() => {
+        const input = document.getElementById('quiz-typed-answer');
+        if (input) input.focus();
+      });
+    }
+  },
+
+  submitTypedAnswer() {
+    const input = document.getElementById('quiz-typed-answer');
+    if (!input || input.disabled) return;
+    const value = (input.value || '').trim();
+    if (!value) return;
+    input.disabled = true;
+    const result = QuizEngine.submitAnswer(value);
+    if (!result) return;
+    this._renderAnswerFeedback(result, value);
   },
 
   handleAnswer(selected, btnElement) {
@@ -319,10 +552,7 @@ const App = {
     const result = QuizEngine.submitAnswer(selected);
     if (!result) return;
 
-    const feedback = document.getElementById('quiz-feedback');
-    const container = document.getElementById('app-content');
-
-    // Highlight buttons
+    // Highlight buttons (briefly visible while options fade out via CSS)
     options.forEach(btn => {
       btn.disabled = true;
       const answer = btn.getAttribute('data-answer');
@@ -335,25 +565,50 @@ const App = {
       }
     });
 
+    this._renderAnswerFeedback(result, selected);
+  },
+
+  _renderAnswerFeedback(result, selected) {
+    const feedback = document.getElementById('quiz-feedback');
+    const container = document.getElementById('app-content');
+    const quizScreen = document.querySelector('.quiz-screen');
+
+    // Hide question + options/input, take over screen with feedback panel.
+    if (quizScreen) quizScreen.classList.add('feedback-shown');
+
+    const ipaHtml = result.pronunciation
+      ? `<div class="feedback-ipa-big">${result.pronunciation}</div>` : '';
+
     if (result.isCorrect) {
-      const comboText = result.combo >= 3 ? `<span class="combo-badge">${result.combo}x COMBO 🔥</span>` : '';
-      const xpText = `<span class="xp-popup">+${result.xpGained} XP</span>`;
-      const levelUpText = result.levelUp ? `<div class="level-up-mini">🎉 LEVEL UP! Level ${result.levelUp.level}: ${result.levelUp.title}</div>` : '';
+      // Audio: ding on correct, distinct level-up jingle if leveled up.
+      if (typeof Sounds !== 'undefined') {
+        if (result.levelUp) Sounds.levelUp();
+        else Sounds.ding();
+      }
+      const comboHtml = result.combo >= 3
+        ? `<div class="feedback-combo">${result.combo}× COMBO 🔥</div>` : '';
+      const levelUpHtml = result.levelUp
+        ? `<div class="level-up-mini">🎉 LEVEL UP! Level ${result.levelUp.level}: ${result.levelUp.title}</div>` : '';
 
       feedback.innerHTML = `
         <div class="feedback-correct">
-          <span class="feedback-emoji bounce">😊</span>
-          <span class="feedback-text">Správně! ${xpText} ${comboText}</span>
-          <span class="feedback-word">${result.czechWord} = ${result.englishWord}</span>
-          ${levelUpText}
+          <div class="feedback-emoji-big bounce">😊</div>
+          <div class="feedback-status">Správně! <span class="xp-popup">+${result.xpGained} XP</span></div>
+          ${comboHtml}
+          <div class="feedback-word-pair">
+            <div class="feedback-cz">${result.czechWord}</div>
+            <div class="feedback-eq">=</div>
+            <div class="feedback-en">${result.englishWord}</div>
+            ${ipaHtml}
+          </div>
+          <button class="btn btn-secondary btn-replay" onclick="SpeechManager.speakBoth('${result.czechWord.replace(/'/g, "\\'")}', 'cz', '${result.englishWord.replace(/'/g, "\\'")}', 'en')">🔊 Znovu</button>
+          ${levelUpHtml}
         </div>
       `;
       feedback.style.display = 'block';
 
-      // Read both: Czech then English
       SpeechManager.speakBoth(result.czechWord, 'cz', result.englishWord, 'en');
 
-      // Auto-advance
       setTimeout(() => {
         if (QuizEngine.nextQuestion()) {
           this.showQuestion(container);
@@ -363,18 +618,25 @@ const App = {
         }
       }, result.levelUp ? 3500 : 2500);
     } else {
+      if (typeof Sounds !== 'undefined') Sounds.buzz();
       feedback.innerHTML = `
         <div class="feedback-wrong">
-          <span class="feedback-emoji">😕</span>
-          <span class="feedback-text">Správná odpověď: <strong>${result.correctAnswer}</strong></span>
-          <span class="feedback-translation">${result.czechWord} = ${result.englishWord}</span>
-          <span class="combo-lost">Combo ztraceno!</span>
+          <div class="feedback-emoji-big">😕</div>
+          <div class="feedback-status">Správná odpověď:</div>
+          <div class="feedback-word-pair">
+            <div class="feedback-cz">${result.czechWord}</div>
+            <div class="feedback-eq">=</div>
+            <div class="feedback-en feedback-en-emphasized">${result.englishWord}</div>
+            ${ipaHtml}
+          </div>
+          <div class="feedback-your-answer">Tvoje odpověď: <em>${selected}</em></div>
+          <div class="combo-lost">${result.combo === 0 ? '💔 Combo ztraceno' : ''}</div>
+          <button class="btn btn-secondary btn-replay" onclick="SpeechManager.speakBoth('${result.czechWord.replace(/'/g, "\\'")}', 'cz', '${result.englishWord.replace(/'/g, "\\'")}', 'en')">🔊 Znovu</button>
           <button class="btn btn-primary btn-next" onclick="App.advanceQuiz()">Další ➜</button>
         </div>
       `;
       feedback.style.display = 'block';
 
-      // Read both: Czech then English
       SpeechManager.speakBoth(result.czechWord, 'cz', result.englishWord, 'en');
     }
   },
@@ -478,15 +740,37 @@ const App = {
 
         ${wrongListHtml}
 
+        ${(() => {
+          const catIds = r.categoryIds || [];
+          let remaining = DataManager.data.words;
+          if (catIds.length > 0) remaining = remaining.filter(w => catIds.includes(w.categoryId));
+          const untestedLeft = remaining.filter(w => w.state === 'untested').length;
+          const learningLeft = remaining.filter(w => w.state === 'learning').length;
+          const toGo = untestedLeft + learningLeft;
+          if (toGo === 0) {
+            return '<div class="all-done-banner">🏆 V tomhle okruhu už umíš všechno! Vyber jiný okruh na dashboardu.</div>';
+          }
+          return `<div class="next-up-info">📌 V tomhle okruhu zbývá <strong>${toGo}</strong> slov (${untestedLeft} nezkoušeno, ${learningLeft} k procvičení).</div>`;
+        })()}
+
         <div class="results-actions">
           ${r.wrongWords.length > 0 ? `
             <button class="btn btn-primary" onclick="App.navigate('quiz', { practiceWrong: true, wrongWords: ${JSON.stringify(r.wrongWords).replace(/"/g, '&quot;')} })">
               🔄 Procvičit chybná
             </button>
           ` : ''}
-          <button class="btn btn-primary" onclick="App.navigate('quiz')">
-            🎯 Nový kvíz
-          </button>
+          ${(() => {
+            const catIds = r.categoryIds || [];
+            let remaining = DataManager.data.words;
+            if (catIds.length > 0) remaining = remaining.filter(w => catIds.includes(w.categoryId));
+            const toGo = remaining.filter(w => w.state !== 'known').length;
+            if (toGo >= 4) {
+              return `<button class="btn btn-primary btn-large" onclick="App.navigate('quiz', { categoryIds: ${JSON.stringify(catIds).replace(/"/g, '&quot;')} })">
+                ▶ Pokračovat (${Math.min(DataManager.data.settings.quizSize, toGo)} dalších)
+              </button>`;
+            }
+            return '';
+          })()}
           <button class="btn btn-secondary" onclick="App.navigate('dashboard')">
             🏠 Zpět na úvod
           </button>
@@ -498,9 +782,16 @@ const App = {
     if (r.rewardEarned) {
       setTimeout(() => this.showReward(), 1000);
     }
-    // Confetti for perfect score or new achievements
+    // Sound + confetti party
+    if (typeof Sounds !== 'undefined') {
+      // Always play fanfare at end of quiz — that's the big dopamine hit.
+      Sounds.fanfare();
+    }
     if (r.accuracy === 100 || (r.newAchievements && r.newAchievements.length > 0)) {
       Confetti.start(3000);
+    } else if (r.accuracy >= 70) {
+      // Smaller burst for good (but not perfect) score
+      Confetti.start(1500);
     }
   },
 
@@ -667,27 +958,28 @@ const App = {
       <div class="import-screen">
         <div class="import-header">
           <button class="btn btn-back" onclick="App.navigate('dashboard')">← Zpět</button>
-          <h2>📥 Import slovíček z Excelu</h2>
+          <h2>📥 Import slovíček (Excel / CSV)</h2>
         </div>
 
         <div class="import-instructions card">
           <h3>Formát souboru:</h3>
-          <p>Sloupec A = <strong>anglicky</strong>, Sloupec B = <strong>česky</strong></p>
-          <p>Každý <strong>list</strong> v Excelu = jeden okruh (název listu = název okruhu)</p>
+          <p>Pět sloupců: <strong>Česky | Anglicky | Výslovnost (IPA) | Učebnice | Téma</strong></p>
+          <p>Okruh (kategorie) v aplikaci se sestaví jako <strong>„Učebnice — Téma"</strong> (např. <em>Project 4 — Family</em>).</p>
+          <p>Výslovnost, Učebnice a Téma jsou volitelné. První řádek může být hlavička.</p>
           <div class="import-example">
             <table>
-              <tr><th>A (English)</th><th>B (Česky)</th></tr>
-              <tr><td>dog</td><td>pes</td></tr>
-              <tr><td>cat</td><td>kočka</td></tr>
-              <tr><td>house</td><td>dům</td></tr>
+              <tr><th>A Česky</th><th>B Anglicky</th><th>C Výslovnost</th><th>D Učebnice</th><th>E Téma</th></tr>
+              <tr><td>máma</td><td>mother</td><td>/ˈmʌðə/</td><td>Project 4</td><td>Family</td></tr>
+              <tr><td>škola</td><td>school</td><td>/skuːl/</td><td>Project 4</td><td>School</td></tr>
+              <tr><td>pes</td><td>dog</td><td>/dɒɡ/</td><td>Bridge 1</td><td>Animals</td></tr>
             </table>
           </div>
         </div>
 
         <div class="import-form card">
           <div class="form-group">
-            <label>Vyber soubor (.xls, .xlsx):</label>
-            <input type="file" id="import-file" accept=".xls,.xlsx" onchange="App.handleFileSelect(this)" class="input-file">
+            <label>Vyber soubor (.xls, .xlsx, .csv):</label>
+            <input type="file" id="import-file" accept=".xls,.xlsx,.csv" onchange="App.handleFileSelect(this)" class="input-file">
           </div>
 
           <div id="import-preview" style="display: none;"></div>
@@ -724,7 +1016,7 @@ const App = {
               <div class="import-sheet-preview">
                 <h4>📚 ${sheet.name} (${sheet.words.length} slovíček)</h4>
                 ${sheet.words.slice(0, showCount).map(w => `
-                  <div class="preview-word">${w.english} → ${w.czech}</div>
+                  <div class="preview-word">${w.czech} → ${w.english}${w.pronunciation ? ` <span class="preview-ipa">${w.pronunciation}</span>` : ''}</div>
                 `).join('')}
                 ${sheet.words.length > showCount ? `<div class="preview-more">...a dalších ${sheet.words.length - showCount}</div>` : ''}
               </div>
@@ -893,7 +1185,7 @@ const App = {
               ${words.map(w => `
                 <tr>
                   <td>${w.czech}</td>
-                  <td>${w.english}</td>
+                  <td>${w.english}${w.pronunciation ? ` <span class="word-ipa">${w.pronunciation}</span>` : ''}</td>
                   <td>${stateLabel(w.state)}</td>
                   <td><button class="btn-sound-small" onclick="SpeechManager.speak('${w.english.replace(/'/g, "\\'")}')">🔊</button></td>
                 </tr>
